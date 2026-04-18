@@ -39,7 +39,6 @@ function computeResult(answers: Answer[]): string {
 }
 
 export function PlacementTest() {
-  const router = useRouter();
   const [currentLevelIndex, setCurrentLevelIndex] = useState(0);
   const [questionIndexInLevel, setQuestionIndexInLevel] = useState(0);
   const [answers, setAnswers] = useState<Answer[]>([]);
@@ -221,10 +220,12 @@ export function PlacementTest() {
       </div>
 
       {state !== 'unanswered' && (
-        <Button onClick={handleNext} size="lg" className="w-full flex items-center gap-2">
-          {totalAnswered + 1 >= totalQuestions ? 'See my result' : 'Next question'}
-          <ChevronRight className="h-4 w-4" />
-        </Button>
+        <div className="sticky bottom-4 z-10">
+          <Button onClick={handleNext} size="lg" className="w-full flex items-center gap-2 shadow-lg">
+            {totalAnswered + 1 >= totalQuestions ? 'See my result' : 'Next question'}
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+        </div>
       )}
     </div>
   );

@@ -114,13 +114,14 @@ function pickReviewWords(userId: number, limit = 15): Word[] {
   `).all(userId, limit) as Word[];
 }
 
-function pickNewWords(userId: number, userLevel: string, limit = 20): Word[] {
+function pickNewWords(userId: number, userLevel: string, limit = 20, excludeIds: number[] = []): Word[] {
   const db = getDb();
   const levelIndex = LEVEL_ORDER.indexOf(userLevel);
 
   // Try exact level first, then next level if not enough
   const levelsToTry = LEVEL_ORDER.slice(0, Math.min(levelIndex + 2, LEVEL_ORDER.length));
   const result: Word[] = [];
+  const seen = new Set<number>(excludeIds);
 
   for (const level of levelsToTry) {
     if (result.length >= limit) break;
@@ -132,8 +133,15 @@ function pickNewWords(userId: number, userLevel: string, limit = 20): Word[] {
         AND wp.id IS NULL
       ORDER BY w.id
       LIMIT ?
-    `).all(userId, level, limit - result.length) as Word[];
-    result.push(...rows);
+    `).all(userId, level, limit * 2) as Word[];
+
+    for (const row of rows) {
+      if (result.length >= limit) break;
+      if (!seen.has(row.id)) {
+        seen.add(row.id);
+        result.push(row);
+      }
+    }
   }
 
   return result;
@@ -152,7 +160,8 @@ export function getOrCreateDailySession(userId: number): DailySessionFull {
   if (!session) {
     const userLevel = getUserLevel(userId);
     const reviewWords = pickReviewWords(userId);
-    const newWords = pickNewWords(userId, userLevel);
+    const reviewIds = reviewWords.map(w => w.id);
+    const newWords = pickNewWords(userId, userLevel, 20, reviewIds);
     const grammarTopic = pickGrammarTopic(userId, userLevel);
 
     const result = db.prepare(`
