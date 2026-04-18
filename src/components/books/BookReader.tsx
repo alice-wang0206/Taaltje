@@ -8,8 +8,9 @@ import type { Book } from '@/lib/db/data/alice-wonderland';
 interface SelectionPopup {
   text: string;
   context: string;
-  x: number;
-  y: number;
+  // viewport-relative coordinates for fixed positioning
+  left: number;
+  top: number;
 }
 
 interface BookReaderProps {
@@ -21,57 +22,72 @@ export function BookReader({ book }: BookReaderProps) {
   const [popup, setPopup] = useState<SelectionPopup | null>(null);
   const [analysis, setAnalysis] = useState('');
   const [loading, setLoading] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const analysisRef = useRef<HTMLDivElement>(null);
+  const popupRef = useRef<HTMLDivElement>(null);
 
   const chapter = book.chapters[chapterIndex];
 
-  // Close popup on click outside
+  // Close popup on click/tap outside
   useEffect(() => {
-    const handleClick = (e: MouseEvent) => {
-      if (
-        analysisRef.current &&
-        !analysisRef.current.contains(e.target as Node)
-      ) {
+    if (!popup) return;
+    const handler = (e: PointerEvent) => {
+      if (popupRef.current && !popupRef.current.contains(e.target as Node)) {
         setPopup(null);
         setAnalysis('');
       }
     };
-    if (popup) {
-      document.addEventListener('mousedown', handleClick);
-    }
-    return () => document.removeEventListener('mousedown', handleClick);
+    // slight delay so the pointer-up that opened the popup doesn't immediately close it
+    const t = setTimeout(() => document.addEventListener('pointerdown', handler), 100);
+    return () => {
+      clearTimeout(t);
+      document.removeEventListener('pointerdown', handler);
+    };
   }, [popup]);
 
-  const handleTextSelection = useCallback(() => {
-    const sel = window.getSelection();
-    if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return;
+  const showPopup = useCallback((text: string, context: string, rect: DOMRect) => {
+    const popupWidth = 320;
+    const left = Math.max(8, Math.min(
+      rect.left + rect.width / 2 - popupWidth / 2,
+      window.innerWidth - popupWidth - 8
+    ));
+    // try to place below; if too close to bottom, place above selection
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const top = spaceBelow > 200 ? rect.bottom + 8 : rect.top - 8;
 
-    const text = sel.toString().trim();
-    if (!text || text.length < 2 || text.length > 400) return;
-
-    // Get surrounding context (the paragraph text)
-    let context = '';
-    const range = sel.getRangeAt(0);
-    const container = range.commonAncestorContainer;
-    const para =
-      container.nodeType === Node.TEXT_NODE
-        ? container.parentElement
-        : (container as Element);
-    if (para) context = para.textContent ?? '';
-
-    // Position popup near selection
-    const rect = range.getBoundingClientRect();
-    const scrollY = window.scrollY;
-
-    setPopup({
-      text,
-      context,
-      x: Math.min(rect.left + rect.width / 2, window.innerWidth - 320),
-      y: rect.bottom + scrollY + 8,
-    });
+    setPopup({ text, context, left, top });
     setAnalysis('');
   }, []);
+
+  // Works on desktop (mouse) and mobile (touch) via pointer events
+  const handlePointerUp = useCallback(() => {
+    // Small delay so browser has time to finalise selection after pointerup
+    setTimeout(() => {
+      const sel = window.getSelection();
+      if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return;
+
+      const text = sel.toString().trim();
+      if (!text || text.length < 2 || text.length > 400) return;
+
+      const range = sel.getRangeAt(0);
+      const rect = range.getBoundingClientRect();
+      if (rect.width === 0 && rect.height === 0) return;
+
+      // Surrounding paragraph for context
+      const container = range.commonAncestorContainer;
+      const para = container.nodeType === Node.TEXT_NODE
+        ? container.parentElement
+        : (container as Element);
+      const context = para?.textContent ?? '';
+
+      showPopup(text, context, rect);
+    }, 50);
+  }, [showPopup]);
+
+  // Tap a word on mobile (single tap → select the tapped word)
+  const handleWordTap = useCallback((e: React.MouseEvent<HTMLSpanElement>, word: string, context: string) => {
+    if (window.getSelection()?.toString().trim()) return; // let drag selection take over
+    const rect = (e.target as HTMLElement).getBoundingClientRect();
+    showPopup(word, context, rect);
+  }, [showPopup]);
 
   const analyze = useCallback(async () => {
     if (!popup || loading) return;
@@ -82,10 +98,7 @@ export function BookReader({ book }: BookReaderProps) {
       const res = await fetch('/api/books/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          selectedText: popup.text,
-          context: popup.context,
-        }),
+        body: JSON.stringify({ selectedText: popup.text, context: popup.context }),
       });
 
       if (!res.ok || !res.body) {
@@ -109,28 +122,47 @@ export function BookReader({ book }: BookReaderProps) {
     }
   }, [popup, loading]);
 
-  // Render markdown-ish bold (**text**) simply
   function renderAnalysis(text: string) {
     return text.split('\n').map((line, i) => {
+      if (!line.trim()) return null;
       const parts = line.split(/\*\*([^*]+)\*\*/g);
       return (
-        <p key={i} className={cn('text-sm leading-relaxed', i > 0 && 'mt-1')}>
+        <p key={i} className={cn('text-sm leading-relaxed', i > 0 && 'mt-1.5')}>
           {parts.map((part, j) =>
             j % 2 === 1 ? (
-              <strong key={j} className="font-semibold text-gray-900">
-                {part}
-              </strong>
-            ) : (
-              part
-            )
+              <strong key={j} className="font-semibold text-gray-900">{part}</strong>
+            ) : part
           )}
         </p>
       );
     });
   }
 
+  // Render paragraph with individually tappable words (for mobile tap)
+  function renderParagraph(text: string, paraIndex: number) {
+    const words = text.split(/(\s+)/);
+    return (
+      <p key={paraIndex} className="leading-relaxed text-gray-800 mb-4 font-serif text-base sm:text-lg">
+        {words.map((token, i) => {
+          if (/^\s+$/.test(token)) return token;
+          const word = token.replace(/[.,!?;:'"()[\]{}«»„"‚']+/g, '');
+          if (!word) return <span key={i}>{token}</span>;
+          return (
+            <span
+              key={i}
+              className="cursor-pointer rounded hover:bg-yellow-100 transition-colors"
+              onClick={(e) => handleWordTap(e, word, text)}
+            >
+              {token}
+            </span>
+          );
+        })}
+      </p>
+    );
+  }
+
   return (
-    <div className="relative" ref={containerRef}>
+    <div className="relative">
       {/* Chapter navigation */}
       <div className="flex items-center justify-between mb-6">
         <button
@@ -139,7 +171,7 @@ export function BookReader({ book }: BookReaderProps) {
           className="flex items-center gap-1 rounded-lg px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
         >
           <ChevronLeft className="h-4 w-4" />
-          Previous
+          <span className="hidden sm:inline">Previous</span>
         </button>
 
         <div className="text-center">
@@ -154,7 +186,7 @@ export function BookReader({ book }: BookReaderProps) {
           disabled={chapterIndex === book.chapters.length - 1}
           className="flex items-center gap-1 rounded-lg px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
         >
-          Next
+          <span className="hidden sm:inline">Next</span>
           <ChevronRight className="h-4 w-4" />
         </button>
       </div>
@@ -162,7 +194,9 @@ export function BookReader({ book }: BookReaderProps) {
       {/* Hint banner */}
       <div className="mb-6 flex items-center gap-2 rounded-xl bg-blue-50 border border-blue-200 px-4 py-3 text-sm text-blue-700">
         <Languages className="h-4 w-4 shrink-0" />
-        <span>Select any word or sentence to get an English translation and grammar explanation.</span>
+        <span>
+          <strong>Desktop:</strong> select text. <strong>Mobile:</strong> tap any word.
+        </span>
       </div>
 
       {/* Chapter heading */}
@@ -170,31 +204,29 @@ export function BookReader({ book }: BookReaderProps) {
         {chapter.number}. {chapter.title}
       </h2>
 
-      {/* Book text */}
+      {/* Book text — desktop uses drag-select, mobile uses per-word tap */}
       <div
-        className="prose prose-lg max-w-none select-text"
-        onMouseUp={handleTextSelection}
+        className="select-text"
+        onPointerUp={handlePointerUp}
       >
-        {chapter.paragraphs.map((para, i) => (
-          <p
-            key={i}
-            className="leading-relaxed text-gray-800 mb-4 cursor-text font-serif"
-          >
-            {para}
-          </p>
-        ))}
+        {chapter.paragraphs.map((para, i) => renderParagraph(para, i))}
       </div>
 
-      {/* Selection analysis popup */}
+      {/* Selection popup — position: fixed so it works everywhere */}
       {popup && (
         <div
-          ref={analysisRef}
+          ref={popupRef}
           style={{
-            position: 'absolute',
-            left: Math.max(8, Math.min(popup.x - 160, (containerRef.current?.offsetWidth ?? 640) - 328)),
-            top: popup.y - (containerRef.current?.getBoundingClientRect().top ?? 0) - window.scrollY,
+            position: 'fixed',
+            left: popup.left,
+            top: popup.top > window.innerHeight / 2 ? undefined : popup.top,
+            bottom: popup.top > window.innerHeight / 2
+              ? window.innerHeight - popup.top + 8
+              : undefined,
+            width: 320,
+            zIndex: 9999,
           }}
-          className="z-50 w-80 rounded-2xl border border-gray-200 bg-white shadow-xl"
+          className="rounded-2xl border border-gray-200 bg-white shadow-xl"
         >
           {/* Header */}
           <div className="flex items-start justify-between gap-2 border-b border-gray-100 px-4 py-3">
@@ -232,7 +264,7 @@ export function BookReader({ book }: BookReaderProps) {
             )}
 
             {analysis && (
-              <div className="space-y-1 text-gray-700 max-h-72 overflow-y-auto">
+              <div className="space-y-1 text-gray-700 max-h-64 overflow-y-auto">
                 {renderAnalysis(analysis)}
               </div>
             )}

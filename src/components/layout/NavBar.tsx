@@ -1,7 +1,8 @@
 import Link from 'next/link';
 import { getSession } from '@/lib/auth/session';
 import { LogoutButton } from '@/components/auth/LogoutButton';
-import { BookOpen, Users, GraduationCap, Zap, MessageCircle, Library } from 'lucide-react';
+import { GraduationCap } from 'lucide-react';
+import { NavLinks } from './NavLinks';
 
 export async function NavBar() {
   const session = await getSession();
@@ -14,49 +15,9 @@ export async function NavBar() {
           <span>Taaltje</span>
         </Link>
 
+        {/* Desktop nav links */}
         <div className="hidden items-center gap-6 sm:flex">
-          <Link
-            href="/daily"
-            className="flex items-center gap-1.5 text-sm font-medium text-blue-600 hover:text-blue-700 transition-colors"
-          >
-            <Zap className="h-4 w-4" />
-            Daily
-          </Link>
-          <Link
-            href="/vocabulary"
-            className="flex items-center gap-1.5 text-sm font-medium text-gray-600 hover:text-blue-600 transition-colors"
-          >
-            <BookOpen className="h-4 w-4" />
-            Vocabulary
-          </Link>
-          <Link
-            href="/grammar"
-            className="flex items-center gap-1.5 text-sm font-medium text-gray-600 hover:text-blue-600 transition-colors"
-          >
-            <GraduationCap className="h-4 w-4" />
-            Grammar
-          </Link>
-          <Link
-            href="/chat"
-            className="flex items-center gap-1.5 text-sm font-medium text-gray-600 hover:text-blue-600 transition-colors"
-          >
-            <MessageCircle className="h-4 w-4" />
-            Tutor
-          </Link>
-          <Link
-            href="/books"
-            className="flex items-center gap-1.5 text-sm font-medium text-gray-600 hover:text-blue-600 transition-colors"
-          >
-            <Library className="h-4 w-4" />
-            Books
-          </Link>
-          <Link
-            href="/community"
-            className="flex items-center gap-1.5 text-sm font-medium text-gray-600 hover:text-blue-600 transition-colors"
-          >
-            <Users className="h-4 w-4" />
-            Community
-          </Link>
+          <NavLinks />
         </div>
 
         <div className="flex items-center gap-3">
