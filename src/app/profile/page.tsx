@@ -1,10 +1,12 @@
 import { redirect } from 'next/navigation';
+import Link from 'next/link';
 import { getSession } from '@/lib/auth/session';
 import { getUserById } from '@/lib/queries/users';
 import { getUserWordProgress } from '@/lib/queries/words';
 import { getDb } from '@/lib/db';
+import { isProUser, getSubscription } from '@/lib/mollie';
 import { formatDate } from '@/lib/utils/formatDate';
-import { BookOpen, GraduationCap, MessageCircle } from 'lucide-react';
+import { BookOpen, GraduationCap, MessageCircle, Zap } from 'lucide-react';
 
 export const metadata = { title: 'Profile – Taaltje' };
 
@@ -16,6 +18,8 @@ export default async function ProfilePage() {
   if (!user) redirect('/login');
 
   const wordProgress = getUserWordProgress(session.userId);
+  const isPro = isProUser(session.userId);
+  const sub = getSubscription(session.userId);
 
   const grammarCompleted = (
     getDb()
@@ -84,6 +88,40 @@ export default async function ProfilePage() {
             <p className="text-xs text-gray-400">{sub}</p>
           </div>
         ))}
+      </div>
+
+      {/* Subscription status */}
+      <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className={`inline-flex rounded-lg p-2 ${isPro ? 'bg-amber-50 text-amber-500' : 'bg-gray-100 text-gray-400'}`}>
+              <Zap className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="font-semibold text-gray-900">
+                {isPro ? 'Taaltje Premium' : 'Free plan'}
+              </p>
+              {isPro && sub?.subscription_ends_at && (
+                <p className="text-xs text-gray-400">
+                  {sub.subscription_status === 'cancelled'
+                    ? `Access until ${new Date(sub.subscription_ends_at * 1000).toLocaleDateString('nl-NL')}`
+                    : `Renews ${new Date(sub.subscription_ends_at * 1000).toLocaleDateString('nl-NL')}`}
+                </p>
+              )}
+              {!isPro && <p className="text-xs text-gray-400">Upgrade to unlock all features</p>}
+            </div>
+          </div>
+          <Link
+            href="/upgrade"
+            className={`rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${
+              isPro
+                ? 'border border-gray-200 text-gray-500 hover:bg-gray-50'
+                : 'bg-amber-500 text-white hover:bg-amber-600'
+            }`}
+          >
+            {isPro ? 'Manage' : 'Upgrade'}
+          </Link>
+        </div>
       </div>
 
       {wordProgress.total === 0 && grammarCompleted === 0 && (

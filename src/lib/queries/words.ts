@@ -7,6 +7,7 @@ export interface Word {
   language: string;
   part_of_speech: string;
   cefr_level: string;
+  category: string;
   example_sentence: string | null;
   example_translation: string | null;
   created_at: number;

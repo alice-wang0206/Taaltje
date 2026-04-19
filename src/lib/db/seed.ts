@@ -9,6 +9,29 @@ import { grammarTopics as extraGrammarTopics } from './data/grammar-topics';
 
 const db = getDb();
 
+// ─── Migrations (add new columns to existing DBs) ────────────────────────────
+// Add category column to words table (safe if already exists)
+try { db.exec("ALTER TABLE words ADD COLUMN category TEXT NOT NULL DEFAULT 'General'"); } catch { /* already exists */ }
+
+const subscriptionCols = [
+  'ALTER TABLE users ADD COLUMN mollie_customer_id TEXT',
+  'ALTER TABLE users ADD COLUMN mollie_subscription_id TEXT',
+  "ALTER TABLE users ADD COLUMN subscription_status TEXT NOT NULL DEFAULT 'free'",
+  'ALTER TABLE users ADD COLUMN subscription_ends_at INTEGER',
+];
+for (const sql of subscriptionCols) {
+  try { db.exec(sql); } catch { /* column already exists */ }
+}
+db.exec(`
+  CREATE TABLE IF NOT EXISTS subscription_events (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    event_type  TEXT    NOT NULL,
+    payload     TEXT,
+    created_at  INTEGER NOT NULL DEFAULT (unixepoch())
+  )
+`);
+
 // ─── Words ────────────────────────────────────────────────────────────────────
 // Legacy inline words (kept for backwards compatibility - OR IGNORE deduplicates)
 const words = [
@@ -159,19 +182,30 @@ const insertWords = db.transaction(() => {
 insertWords();
 console.log(`✓ Inserted ${words.length} legacy words`);
 
-// ─── Expanded word lists ──────────────────────────────────────────────────────
+// ─── Expanded word lists (grouped format) ────────────────────────────────────
+type WordGroup = { category: string; entries: [string, string, string, string, string][] };
+const flattenGroups = (groups: WordGroup[], level: string) =>
+  groups.flatMap(g =>
+    g.entries.map(([word, translation, pos, ex, ex_t]) => ({
+      word, translation, pos, level, category: g.category, ex, ex_t,
+    }))
+  );
+
 const allExpandedWords = [
-  ...wordsA1.map(([word, translation, pos, ex, ex_t]) => ({ word, translation, pos, level: 'A1', ex, ex_t })),
-  ...wordsA2.map(([word, translation, pos, ex, ex_t]) => ({ word, translation, pos, level: 'A2', ex, ex_t })),
-  ...wordsB1.map(([word, translation, pos, ex, ex_t]) => ({ word, translation, pos, level: 'B1', ex, ex_t })),
-  ...wordsB2.map(([word, translation, pos, ex, ex_t]) => ({ word, translation, pos, level: 'B2', ex, ex_t })),
-  ...wordsC1.map(([word, translation, pos, ex, ex_t]) => ({ word, translation, pos, level: 'C1', ex, ex_t })),
-  ...wordsC2.map(([word, translation, pos, ex, ex_t]) => ({ word, translation, pos, level: 'C2', ex, ex_t })),
+  ...flattenGroups(wordsA1, 'A1'),
+  ...flattenGroups(wordsA2, 'A2'),
+  ...flattenGroups(wordsB1, 'B1'),
+  ...flattenGroups(wordsB2, 'B2'),
+  ...flattenGroups(wordsC1, 'C1'),
+  ...flattenGroups(wordsC2, 'C2'),
 ];
 
 const insertExpandedWords = db.transaction(() => {
   for (const w of allExpandedWords) {
     insertWord.run(w.word, w.translation, w.pos, w.level, w.ex, w.ex_t);
+    // Update category for newly inserted or existing word
+    db.prepare('UPDATE words SET category = ? WHERE word = ? AND language = \'nl\'')
+      .run(w.category, w.word);
   }
 });
 
@@ -420,7 +454,7 @@ const insertPost = db.prepare(`
 const existingPosts = db.prepare('SELECT COUNT(*) as c FROM posts').get() as { c: number };
 
 if (existingPosts.c === 0) {
-  const p1 = insertPost.run(
+  insertPost.run(
     adminUser.id,
     'Welcome to the Taaltje Community!',
     'Hello everyone!\n\nWelcome to Taaltje — the place to practice Dutch (or any language you\'re learning) together. Feel free to introduce yourself, ask questions about grammar, share vocabulary tips, or post interesting cultural facts.\n\nHappy learning! 🌍',
@@ -434,7 +468,7 @@ if (existingPosts.c === 0) {
     'grammar', 0
   );
 
-  const p3 = insertPost.run(
+  insertPost.run(
     ninaUser.id,
     'My favourite resources for learning Dutch',
     'After six months of studying, here are the resources I find most useful:\n\n1. Duolingo for daily habits (gamification helps!)\n2. "NT2 Totaal" course book for serious grammar\n3. Watching "SpangaS" on YouTube with subtitles\n4. Listening to NPO Radio 2\n\nWhat resources do you use?',

@@ -2,12 +2,28 @@
 -- USERS
 -- ============================================================
 CREATE TABLE IF NOT EXISTS users (
+  id                     INTEGER PRIMARY KEY AUTOINCREMENT,
+  username               TEXT    NOT NULL UNIQUE,
+  email                  TEXT    NOT NULL UNIQUE,
+  password               TEXT    NOT NULL,
+  avatar_url             TEXT,
+  role                   TEXT    NOT NULL DEFAULT 'user',
+  created_at             INTEGER NOT NULL DEFAULT (unixepoch()),
+  -- Subscription (Mollie)
+  mollie_customer_id     TEXT,
+  mollie_subscription_id TEXT,
+  subscription_status    TEXT    NOT NULL DEFAULT 'free',
+  subscription_ends_at   INTEGER
+);
+
+-- ============================================================
+-- SUBSCRIPTION EVENTS  (audit trail)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS subscription_events (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
-  username    TEXT    NOT NULL UNIQUE,
-  email       TEXT    NOT NULL UNIQUE,
-  password    TEXT    NOT NULL,
-  avatar_url  TEXT,
-  role        TEXT    NOT NULL DEFAULT 'user',
+  user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  event_type  TEXT    NOT NULL,   -- 'checkout_started' | 'payment_paid' | 'subscription_created' | 'subscription_cancelled' | 'payment_failed'
+  payload     TEXT,               -- JSON blob from Mollie
   created_at  INTEGER NOT NULL DEFAULT (unixepoch())
 );
 
@@ -21,6 +37,7 @@ CREATE TABLE IF NOT EXISTS words (
   language            TEXT    NOT NULL DEFAULT 'nl',
   part_of_speech      TEXT    NOT NULL,
   cefr_level          TEXT    NOT NULL,
+  category            TEXT    NOT NULL DEFAULT 'General',
   example_sentence    TEXT,
   example_translation TEXT,
   created_at          INTEGER NOT NULL DEFAULT (unixepoch())

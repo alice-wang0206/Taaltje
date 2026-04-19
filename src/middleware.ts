@@ -1,10 +1,22 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { verifyToken } from '@/lib/auth/jwt';
 
-const PROTECTED_PATHS = ['/community', '/profile', '/api/community', '/api/progress', '/api/daily', '/api/chat'];
+const PROTECTED_PATHS = [
+  '/community',
+  '/profile',
+  '/api/community',
+  '/api/progress',
+  '/api/daily',
+  '/api/chat',
+  '/api/subscription',
+];
+// Routes that match a protected prefix but must stay public (e.g. Mollie webhook)
+const PUBLIC_OVERRIDES = ['/api/webhooks/mollie'];
 
 export async function middleware(request: NextRequest) {
-  const isProtected = PROTECTED_PATHS.some(p => request.nextUrl.pathname.startsWith(p));
+  const { pathname } = request.nextUrl;
+  if (PUBLIC_OVERRIDES.some(p => pathname.startsWith(p))) return NextResponse.next();
+  const isProtected = PROTECTED_PATHS.some(p => pathname.startsWith(p));
   if (!isProtected) return NextResponse.next();
 
   const token = request.cookies.get('token')?.value;
@@ -34,5 +46,6 @@ export const config = {
     '/api/progress/:path*',
     '/api/daily/:path*',
     '/api/chat',
+    '/api/subscription/:path*',
   ],
 };
