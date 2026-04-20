@@ -13,7 +13,7 @@ const PROTECTED_PATHS = [
 // Routes that match a protected prefix but must stay public (e.g. Mollie webhook)
 const PUBLIC_OVERRIDES = ['/api/webhooks/mollie'];
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   if (PUBLIC_OVERRIDES.some(p => pathname.startsWith(p))) return NextResponse.next();
   const isProtected = PROTECTED_PATHS.some(p => pathname.startsWith(p));
